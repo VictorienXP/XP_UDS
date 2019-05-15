@@ -1,5 +1,7 @@
 --[Undertale Death Screen by VictorienXP@Xperidia]--
-local ver = 1.0
+
+local ver = 1.1
+
 if SERVER then
 
 	resource.AddWorkshop("587343641")
@@ -7,13 +9,16 @@ if SERVER then
 	util.AddNetworkString("XP_UDS_CallScreen")
 
 	xp_uds_sv_enabled = CreateConVar("xp_uds_sv_enabled", 1, { FCVAR_ARCHIVE, FCVAR_REPLICATED }, "Enable/disable the screen for all players.")
+	xp_uds_sv_sandbox_only = CreateConVar("xp_uds_sv_sandbox_only", 1, { FCVAR_ARCHIVE, FCVAR_REPLICATED }, "If the screen should be only in sandbox.")
 
 	hook.Add("PlayerDeathSound", "XP_UDS_MuteDeathSound", function()
-		if xp_uds_sv_enabled:GetBool() then return true end
+		if xp_uds_sv_enabled:GetBool() and (!xp_uds_sv_sandbox_only:GetBool() or (xp_uds_sv_sandbox_only:GetBool() and engine.ActiveGamemode() == "sandbox")) then
+			return true
+		end
 	end)
 
 	hook.Add("PostPlayerDeath", "XP_UDS_DeathScreen", function(ply)
-		if xp_uds_sv_enabled:GetBool() and ply:GetInfoNum("xp_uds_enabled", 1) == 1 then
+		if xp_uds_sv_enabled:GetBool() and ply:GetInfoNum("xp_uds_enabled", 1) == 1 and (!xp_uds_sv_sandbox_only:GetBool() or (xp_uds_sv_sandbox_only:GetBool() and engine.ActiveGamemode() == "sandbox")) then
 			net.Start("XP_UDS_CallScreen")
 			net.Send(ply)
 		end
@@ -22,7 +27,6 @@ if SERVER then
 	MsgC(Color(255, 255, 85), "XP_UDS V" .. ver .. " loaded! (SV)\n")
 
 end
-
 
 if CLIENT then
 
@@ -48,7 +52,13 @@ if CLIENT then
 
 		file.Write("xp_uds/strings.txt", util.TableToJSON(XP_UDS.Strings))
 
+		MsgC(Color(255, 255, 85), "XP_UDS: Strings Saved!\n")
+
 	end
+
+	concommand.Add("xp_uds_strings_save", function(ply, cmd, args)
+		XP_UDS:SaveStrings()
+	end)
 
 	function XP_UDS:LoadStrings()
 
@@ -64,24 +74,29 @@ if CLIENT then
 
 		else
 
-			if !file.IsDir("xp_uds", "DATA") then
-				file.CreateDir("xp_uds")
-			end
-
-			file.Write("xp_uds/strings.txt", util.TableToJSON(XP_UDS.Strings))
+			XP_UDS:SaveStrings()
 
 		end
 
 	end
 
+	concommand.Add("xp_uds_strings_load", function(ply, cmd, args)
+		XP_UDS:LoadStrings()
+	end)
+
 	xp_uds_enabled = CreateConVar("xp_uds_enabled", 1, { FCVAR_ARCHIVE, FCVAR_USERINFO }, "Enable/disable the screen for yourself.")
 	xp_uds_playercolor = CreateConVar("xp_uds_playercolor", 1, { FCVAR_ARCHIVE }, "If it should use your player color (1) or the original color (0) for the heart/soul.")
 	xp_uds_special = CreateConVar("xp_uds_special", 0, { FCVAR_ARCHIVE }, "Change the game over screen by a special game over screen:\n    1 Flowey\n    2 Sans")
 	xp_uds_name = CreateConVar("xp_uds_name", "", { FCVAR_ARCHIVE }, "Change the displayed name.")
-	xp_uds_color = CreateConVar("xp_uds_color", "0 0 0", { FCVAR_ARCHIVE }, "Change the heart/soul color. The value is a Vector - so between 0-1 - not between 0-255")
+	xp_uds_soul_color_r = CreateConVar("xp_uds_soul_color_r", 255, { FCVAR_ARCHIVE }, "Red value of the heart/soul.")
+	xp_uds_soul_color_g = CreateConVar("xp_uds_soul_color_g", 0, { FCVAR_ARCHIVE }, "Green value of the heart/soul.")
+	xp_uds_soul_color_b = CreateConVar("xp_uds_soul_color_b", 0, { FCVAR_ARCHIVE }, "Blue value of the heart/soul.")
+	xp_uds_soul_color_a = CreateConVar("xp_uds_soul_color_a", 255, { FCVAR_ARCHIVE }, "Alpha value of the heart/soul.")
+	xp_uds_soul_rainbow = CreateConVar("xp_uds_soul_rainbow", 0, { FCVAR_ARCHIVE }, "Make the heart/soul cycle colors.")
 	xp_uds_force = CreateConVar("xp_uds_force", 0, { FCVAR_ARCHIVE }, "Force the use of the death screen. Only work in servers with \"sv_allowcslua 1\".")
 
 	local function ForceUDS()
+
 		if xp_uds_force:GetBool() then
 
 			if !XP_UDS.DeathCount then XP_UDS.DeathCount = LocalPlayer():Deaths() end
@@ -92,6 +107,7 @@ if CLIENT then
 			end
 
 		end
+
 	end
 	hook.Add("Think", "XP_UDS_Force", ForceUDS)
 
@@ -126,6 +142,12 @@ if CLIENT then
 
 		if !IsValid(XP_UDS.Screen) then
 
+			if xp_uds_playercolor:GetBool() then
+				XP_UDS.SoulColor = LocalPlayer():GetPlayerColor():ToColor() or Color(255, 0, 0, 255)
+			else
+				XP_UDS.SoulColor = Color(xp_uds_soul_color_r:GetInt(), xp_uds_soul_color_g:GetInt(), xp_uds_soul_color_b:GetInt(), xp_uds_soul_color_a:GetInt())
+			end
+
 			XP_UDS.Screen = vgui.Create("DFrame")
 			XP_UDS.Screen:ParentToHUD()
 			XP_UDS.Screen:SetPos(0, 0)
@@ -142,7 +164,7 @@ if CLIENT then
 				elseif XP_UDS.Screen.EndingAnim then
 					draw.RoundedBox(0, 0, 0, w, h, Color(0, 0, 0, 0))
 				else
-					draw.RoundedBox( 0, 0, 0, w, h, Color(0, 0, 0, 255))
+					draw.RoundedBox(0, 0, 0, w, h, Color(0, 0, 0, 255))
 				end
 			end
 			XP_UDS.Screen.Think = function()
@@ -175,6 +197,19 @@ if CLIENT then
 					XP_UDS.CurMusic:SetVolume(math.Clamp(math.Remap(SysTime() - XP_UDS.Screen.EndingTime, 0, 0.4, 1, 0), 0, 1))
 				end
 
+				if xp_uds_soul_rainbow:GetBool() then
+					local x = CurTime() * 5 --Mess with time to mess with speed
+					XP_UDS.SoulColor = Vector(	0.5 * (math.sin(x - 1)	+ 1),
+												0.5 * (math.sin(x)		+ 1),
+												0.5 * (math.sin(x + 1)	+ 1)):ToColor()
+					if IsValid(XP_UDS.Screen.Heart) then XP_UDS.Screen.Heart:SetImageColor(XP_UDS.SoulColor) end
+					local i = 0
+					while IsValid(XP_UDS.Screen["HeartShard_" .. i]) do
+						XP_UDS.Screen["HeartShard_" .. i]:SetImageColor(XP_UDS.SoulColor)
+						i = i + 1
+					end
+				end
+
 			end
 			XP_UDS.Screen.OnClose = function()
 				XP_UDS:Music("stop")
@@ -187,26 +222,18 @@ if CLIENT then
 			XP_UDS.Screen:MakePopup()
 			XP_UDS.Screen:SetKeyboardInputEnabled(false)
 
-			if Vector(xp_uds_color:GetString()) and Vector(xp_uds_color:GetString()) != Vector(0, 0, 0) then
-				XP_UDS.PlayerColor = Vector(xp_uds_color:GetString()):ToColor() or Color( 255, 0, 0, 255 )
-			elseif LocalPlayer() and xp_uds_playercolor:GetBool() and LocalPlayer():GetInfo( "cl_playercolor" ) and LocalPlayer():GetInfo( "cl_playercolor" ) != "" and Vector(LocalPlayer():GetInfo( "cl_playercolor" )) != Vector(0, 0, 0) and Vector(LocalPlayer():GetInfo( "cl_playercolor" )) != Vector(0.24, 0.34, 0.41) then
-				XP_UDS.PlayerColor = Vector(LocalPlayer():GetInfo( "cl_playercolor" )):ToColor() or Color( 255, 0, 0, 255 )
-			else
-				XP_UDS.PlayerColor = Color( 255, 0, 0, 255 )
-			end
-
 			XP_UDS.Screen.Heart = vgui.Create("DImage", XP_UDS.Screen)
 			XP_UDS.Screen.Heart:SetImage("xp_uds/heart")
 			XP_UDS.Screen.Heart:SetPos(ScrW() / 2 - (32 * (ScrH() / 480)) / 2, ScrH() / 1.5 - (32 * (ScrH() / 480)) / 2)
 			XP_UDS.Screen.Heart:SetSize(32 * (ScrH() / 480), 32 * (ScrH() / 480))
-			XP_UDS.Screen.Heart:SetImageColor(XP_UDS.PlayerColor)
+			XP_UDS.Screen.Heart:SetImageColor(XP_UDS.SoulColor)
 
 
 			XP_UDS.Screen.GameoverLogo = vgui.Create("DImage", XP_UDS.Screen)
 			XP_UDS.Screen.GameoverLogo:SetImage("xp_uds/gameover")
 			XP_UDS.Screen.GameoverLogo:SetPos(ScrW() / 2-(422 * (ScrH() / 480)) / 2, (32 * (ScrH() / 480)) / 2)
 			XP_UDS.Screen.GameoverLogo:SetSize(422 * (ScrH() / 480), 182 * (ScrH() / 480) + 17 * (ScrH() / 480))
-			XP_UDS.Screen.GameoverLogo:SetImageColor(Color( 255, 255, 255, 0 ))
+			XP_UDS.Screen.GameoverLogo:SetImageColor(Color(255, 255, 255, 0))
 
 
 			XP_UDS.Screen.qt = vgui.Create("DPanel", XP_UDS.Screen)
@@ -215,18 +242,18 @@ if CLIENT then
 			XP_UDS.Screen.qt:SetSize(640 * (ScrH() / 640), (480 * (ScrH() / 480)) / 1.5)
 			XP_UDS.Screen.qt:SetWorldClicker(true)
 
+			local name = "C H A R A"
 			if xp_uds_name:GetString() and xp_uds_name:GetString() != "" then
-				XP_UDS.FinalString = (xp_uds_name:GetString():gsub(".", "%1 "):sub(1, -2) or "C H A R A") .. " !\nS t a y    d e t e r m i n e d . . ."
+				name = xp_uds_name:GetString():gsub(".", "%1 "):sub(1, -2) or "C H A R A"
 			elseif LocalPlayer() then
-				XP_UDS.FinalString = (LocalPlayer():GetName():gsub(".", "%1 "):sub(1, -2) or "C H A R A") .. " !\nS t a y    d e t e r m i n e d . . ."
-			else
-				XP_UDS.FinalString = "C H A R A !\nS t a y    d e t e r m i n e d . . ."
+				name = LocalPlayer():GetName():gsub(".", "%1 "):sub(1, -2) or "C H A R A"
 			end
+			XP_UDS.FinalString = name .. " !\nS t a y    d e t e r m i n e d . . ."
 
 			XP_UDS.Screen.TXT = vgui.Create("DLabel", XP_UDS.Screen.qt)
 			XP_UDS.Screen.TXT:SetPos(160, 0)
 			XP_UDS.Screen.TXT:SetText("")
-			XP_UDS.Screen.TXT:SetTextColor( Color( 255, 255, 255, 255 ) )
+			XP_UDS.Screen.TXT:SetTextColor(Color(255, 255, 255, 255))
 			XP_UDS.Screen.TXT:SetFont("XP_UDS_MAIN")
 			XP_UDS.Screen.TXT:SetSize(640 * (ScrH() / 640), 74 * (ScrH() / 480))
 
@@ -253,7 +280,7 @@ if CLIENT then
 					pnl:SetText(string.sub(XP_UDS.Strings[data], 0, math.Remap(delta, 0, 1, 0, #XP_UDS.Strings[data])))
 				else
 					local txt = "S o m e t h i n g    w e n t\nw r o n g . . ."
-					pnl:SetText(string.sub(txt, 0, math.Remap(delta,0,1,0,#txt)))
+					pnl:SetText(string.sub(txt, 0, math.Remap(delta, 0, 1, 0, #txt)))
 				end
 				if data == "Flowey" and pnl:GetText():gsub(" ", "") != lasttext:gsub(" ", "") then
 					surface.PlaySound("xp_uds/000029f0.wav")
@@ -286,7 +313,7 @@ if CLIENT then
 					XP_UDS.Screen.HeartShard_0:SetImage("xp_uds/heartshards")
 					XP_UDS.Screen.HeartShard_0:SetPos(ScrW() / 2 - (8 * (ScrH() / 480)) / 1.5, ScrH() / 1.5 - (8 * (ScrH() / 480)))
 					XP_UDS.Screen.HeartShard_0:SetSize(8 * (ScrH() / 480), 8 * (ScrH() / 480))
-					XP_UDS.Screen.HeartShard_0:SetImageColor(XP_UDS.PlayerColor)
+					XP_UDS.Screen.HeartShard_0:SetImageColor(XP_UDS.SoulColor)
 					XP_UDS.HeartShard_Anim_0 = Derma_Anim("XP_UDS_HeartShard_0", XP_UDS.Screen.HeartShard_0, function(pnl, anim, delta, data)
 						pnl:SetPos(ScrW() / 2 - (8 * (ScrH() / 480)) / 1.5 - math.Remap(delta, 0, 1, 0, 480 * (ScrH() / 480)), ScrH() / 1.5 - (8 * (ScrH() / 480)) + math.Remap(delta ^ 6, 0 , 1, 0, 480 * (ScrH() / 480)))
 					end)
@@ -296,7 +323,7 @@ if CLIENT then
 					XP_UDS.Screen.HeartShard_1:SetImage("xp_uds/heartshards")
 					XP_UDS.Screen.HeartShard_1:SetPos(ScrW() / 2 - (8 * (ScrH() / 480)) / 2, ScrH() / 1.5 - (8 * (ScrH() / 480)) / 2)
 					XP_UDS.Screen.HeartShard_1:SetSize(8 * (ScrH() / 480), 8 * (ScrH() / 480))
-					XP_UDS.Screen.HeartShard_1:SetImageColor(XP_UDS.PlayerColor)
+					XP_UDS.Screen.HeartShard_1:SetImageColor(XP_UDS.SoulColor)
 					XP_UDS.HeartShard_Anim_1 = Derma_Anim("XP_UDS_HeartShard_1", XP_UDS.Screen.HeartShard_1, function(pnl, anim, delta, data)
 						pnl:SetPos(ScrW() / 2 - (8 * (ScrH() / 480)) / 2 - math.Remap(delta, 0, 1, 0, 480 * (ScrH() / 480)), ScrH() / 1.5 - (8 * (ScrH() / 480)) / 2 + math.Remap(delta ^ 1.5, 0, 1, 0, 480 * (ScrH() / 480)))
 					end)
@@ -306,7 +333,7 @@ if CLIENT then
 					XP_UDS.Screen.HeartShard_2:SetImage("xp_uds/heartshards")
 					XP_UDS.Screen.HeartShard_2:SetPos(ScrW() / 2 - (8 * (ScrH() / 480)) / 4, ScrH() / 1.5 - (8 * (ScrH() / 480)) / 6)
 					XP_UDS.Screen.HeartShard_2:SetSize(8 * (ScrH() / 480), 8 * (ScrH() / 480))
-					XP_UDS.Screen.HeartShard_2:SetImageColor(XP_UDS.PlayerColor)
+					XP_UDS.Screen.HeartShard_2:SetImageColor(XP_UDS.SoulColor)
 					XP_UDS.HeartShard_Anim_2 = Derma_Anim("XP_UDS_HeartShard_2", XP_UDS.Screen.HeartShard_2, function(pnl, anim, delta, data)
 						pnl:SetPos(ScrW() / 2 - (8 * (ScrH() / 480)) / 4 - math.Remap(delta, 0, 1, 0, 400), ScrH() / 1.5 - (8 * (ScrH() / 480)) / 6 + math.Remap(delta, 0, 1, 0, 480 * (ScrH() / 480)))
 					end)
@@ -316,8 +343,8 @@ if CLIENT then
 					XP_UDS.Screen.HeartShard_3:SetImage("xp_uds/heartshards")
 					XP_UDS.Screen.HeartShard_3:SetPos(ScrW() / 2 + (8 * (ScrH() / 480)) / 1.5, ScrH() / 1.5 - (8 * (ScrH() / 480)))
 					XP_UDS.Screen.HeartShard_3:SetSize(8 * (ScrH() / 480), 8 * (ScrH() / 480))
-					XP_UDS.Screen.HeartShard_3:SetImageColor(XP_UDS.PlayerColor)
-					XP_UDS.HeartShard_Anim_3 = Derma_Anim("XP_UDS_HeartShard_3", XP_UDS.Screen.HeartShard_3, function( pnl, anim, delta, data )
+					XP_UDS.Screen.HeartShard_3:SetImageColor(XP_UDS.SoulColor)
+					XP_UDS.HeartShard_Anim_3 = Derma_Anim("XP_UDS_HeartShard_3", XP_UDS.Screen.HeartShard_3, function(pnl, anim, delta, data)
 						pnl:SetPos(ScrW() / 2 + (8 * (ScrH() / 480)) / 1.5 + math.Remap(delta, 0, 1, 0, 480 * (ScrH() / 480)), ScrH() / 1.5 - (8 * (ScrH() / 480)) + math.Remap(delta ^ 4, 0, 1, 0, 480 * (ScrH() / 480)))
 					end)
 					XP_UDS.HeartShard_Anim_3:Start(2.5)
@@ -326,7 +353,7 @@ if CLIENT then
 					XP_UDS.Screen.HeartShard_4:SetImage("xp_uds/heartshards")
 					XP_UDS.Screen.HeartShard_4:SetPos(ScrW() / 2 + (8 * (ScrH() / 480)) / 2, ScrH() / 1.5 - (8 * (ScrH() / 480)) / 2)
 					XP_UDS.Screen.HeartShard_4:SetSize(8 * (ScrH() / 480), 8 * (ScrH() / 480))
-					XP_UDS.Screen.HeartShard_4:SetImageColor(XP_UDS.PlayerColor)
+					XP_UDS.Screen.HeartShard_4:SetImageColor(XP_UDS.SoulColor)
 					XP_UDS.HeartShard_Anim_4 = Derma_Anim("XP_UDS_HeartShard_4", XP_UDS.Screen.HeartShard_4, function(pnl, anim, delta, data)
 						pnl:SetPos(ScrW() / 2 + (8 * (ScrH() / 480)) / 2 + math.Remap(delta, 0, 1, 0, 480 * (ScrH() / 480)), ScrH() / 1.5 - (8 * (ScrH() / 480)) / 2 + math.Remap(delta ^ 1.25, 0, 1, 0, 480 * (ScrH() / 480)))
 					end)
@@ -336,7 +363,7 @@ if CLIENT then
 					XP_UDS.Screen.HeartShard_5:SetImage("xp_uds/heartshards")
 					XP_UDS.Screen.HeartShard_5:SetPos(ScrW() / 2 + (8 * (ScrH() / 480)) / 4, ScrH() / 1.5 - (8 * (ScrH() / 480)) / 6)
 					XP_UDS.Screen.HeartShard_5:SetSize(8 * (ScrH() / 480), 8 * (ScrH() / 480))
-					XP_UDS.Screen.HeartShard_5:SetImageColor(XP_UDS.PlayerColor)
+					XP_UDS.Screen.HeartShard_5:SetImageColor(XP_UDS.SoulColor)
 					XP_UDS.HeartShard_Anim_5 = Derma_Anim("XP_UDS_HeartShard_5", XP_UDS.Screen.HeartShard_5, function(pnl, anim, delta, data)
 						pnl:SetPos(ScrW() / 2 + (8 * (ScrH() / 480)) / 4 + math.Remap(delta, 0, 1, 0, 400), ScrH() / 1.5 - (8 * (ScrH() / 480)) / 6 + math.Remap(delta, 0, 1, 0, 480 * (ScrH() / 480)))
 					end)
@@ -346,7 +373,7 @@ if CLIENT then
 
 			end)
 
-			timer.Create( "XP_UDS_GameoverAnimTimer", 2.5, 1, function()
+			timer.Create("XP_UDS_GameoverAnimTimer", 2.5, 1, function()
 				if IsValid(XP_UDS.Screen) and xp_uds_special:GetInt() == 2 and !XP_UDS.Screen.Ending then
 					XP_UDS.GameoverAnim:Start(3, "ON")
 					XP_UDS:Music(XP_UDS.Musics.dogsong)
@@ -358,19 +385,19 @@ if CLIENT then
 				end
 			end)
 
-			timer.Create( "XP_UDS_GameoverAnimTXT", 4.5, 1, function()
+			timer.Create("XP_UDS_GameoverAnimTXT", 4.5, 1, function()
 				if IsValid(XP_UDS.Screen) and !XP_UDS.Screen.Ending then
 					local rand = math.random(1, #XP_UDS.Strings)
-					XP_UDS.TXTAnim:Start(2,rand)
+					XP_UDS.TXTAnim:Start(2, rand)
 				end
 			end)
 
-			timer.Create( "XP_UDS_GameoverAnimTXT2", 8, 1, function()
+			timer.Create("XP_UDS_GameoverAnimTXT2", 8, 1, function()
 				if IsValid(XP_UDS.Screen) and !XP_UDS.Screen.Ending and xp_uds_special:GetInt() != 2 then
 					if xp_uds_special:GetInt() == 1 then
-						XP_UDS.TXTAnim:Start(3,"Flowey")
+						XP_UDS.TXTAnim:Start(3, "Flowey")
 					else
-						XP_UDS.TXTAnim:Start(2,"END")
+						XP_UDS.TXTAnim:Start(2, "END")
 					end
 				end
 			end)
@@ -411,6 +438,32 @@ if CLIENT then
 		end
 
 	end
+
+	hook.Add("PopulateToolMenu", "XP_UDS_MenuSettings", function()
+		spawnmenu.AddToolMenuOption("Options", "Player", "XP_UDS", "Undertale Death Screen", "", "", function(panel)
+			panel:ClearControls()
+			panel:Help("Welcome to the Undertale Death Screen settings.")
+			panel:Help("This addon makes you have the Game Over screen of Undertale when you die!")
+			panel:Help("You're on version " .. ver)
+			panel:CheckBox("Enabled", "xp_uds_enabled")
+			panel:ControlHelp("Turn the Undertale death screen on or off.")
+			panel:TextEntry("Name", "xp_uds_name")
+			panel:ControlHelp("The name that will be used and displayed. Leave empty to use your Steam name.")
+			panel:CheckBox("Use the player color", "xp_uds_playercolor")
+			panel:ControlHelp("If the soul/heart color should be your player color.")
+			panel:AddControl("Color", { Label = "Choose the soul/heart color", Red = "xp_uds_soul_color_r", Green = "xp_uds_soul_color_g", Blue = "xp_uds_soul_color_b", Alpha = "xp_uds_soul_color_a", ShowAlpha = "1", ShowHSV = "1", ShowRGB = "1" })
+			panel:ControlHelp("Doesn't have any effect if \"Use the player color\" is checked.")
+			panel:CheckBox("Rainbow soul", "xp_uds_soul_rainbow")
+			panel:ControlHelp("The soul/heart will be colorful.")
+			panel:NumSlider("Special screen", "xp_uds_special", 0, 2, 0)
+			panel:ControlHelp("1 is for Flowey\n2 is for Sans")
+			panel:CheckBox("Forced mode", "xp_uds_force")
+			panel:ControlHelp("This will force the use of the death screen if it has been disabled serverwise or if the server has sv_allowcslua set to 1.")
+			panel:Help("The following buttons are here to load or save strings which are located in \"garrysmod/data/xp_uds/strings.txt\".")
+			panel:Button("Load strings", "xp_uds_strings_load")
+			panel:Button("Save strings", "xp_uds_strings_save")
+		end)
+	end)
 
 	MsgC(Color(255, 255, 85), "XP_UDS V" .. ver .. " loaded! (CL)\n")
 
